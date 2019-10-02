@@ -1287,6 +1287,7 @@ static void pollset_set_add_fd(grpc_pollset_set* pollset_set, grpc_fd* fd) {
   }
   GRPC_FD_REF(fd, "pollset_set");
   pollset_set->fds[pollset_set->fd_count++] = fd;
+
   for (i = 0; i < pollset_set->pollset_count; i++) {
     pollset_add_fd(pollset_set->pollsets[i], fd);
   }
@@ -1297,8 +1298,25 @@ static void pollset_set_add_fd(grpc_pollset_set* pollset_set, grpc_fd* fd) {
 }
 
 static void pollset_set_del_fd(grpc_pollset_set* pollset_set, grpc_fd* fd) {
-  size_t i;
+  size_t i, j;
   gpr_mu_lock(&pollset_set->mu);
+
+  for (i = 0; i < pollset_set->pollset_set_count; i++) {
+    pollset_set_del_fd(pollset_set->pollset_sets[i], fd);
+  }
+
+  for (i = 0; i < pollset_set->pollset_count; i++) {
+    grpc_pollset* pollset = pollset_set->pollsets[i];
+    for (j = 0; j < pollset->fd_count; j++) {
+      if (pollset->fds[j] == fd) {
+        pollset->fd_count--;
+        GPR_SWAP(grpc_fd*, pollset->fds[j], pollset->fds[pollset->fd_count]);
+        GRPC_FD_UNREF(fd, "multipoller");
+        break;
+      }
+    }
+  }
+
   for (i = 0; i < pollset_set->fd_count; i++) {
     if (pollset_set->fds[i] == fd) {
       pollset_set->fd_count--;
@@ -1308,9 +1326,7 @@ static void pollset_set_del_fd(grpc_pollset_set* pollset_set, grpc_fd* fd) {
       break;
     }
   }
-  for (i = 0; i < pollset_set->pollset_set_count; i++) {
-    pollset_set_del_fd(pollset_set->pollset_sets[i], fd);
-  }
+
   gpr_mu_unlock(&pollset_set->mu);
 }
 
