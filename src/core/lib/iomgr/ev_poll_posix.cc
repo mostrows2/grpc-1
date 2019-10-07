@@ -347,6 +347,10 @@ static void unref_by(grpc_fd* fd, int n) {
     gpr_mu_destroy(&fd->mu);
     grpc_iomgr_unregister_object(&fd->iomgr_object);
     fork_fd_list_remove_node(fd->fork_fd_list);
+    if (fd->closed) {
+      /* Real close() deferred until all known references released. */
+      close(fd->fd);
+    }
     if (fd->shutdown) GRPC_ERROR_UNREF(fd->shutdown_error);
     gpr_free(fd);
   } else {
@@ -423,9 +427,7 @@ static int has_watchers(grpc_fd* fd) {
 
 static void close_fd_locked(grpc_fd* fd) {
   fd->closed = 1;
-  if (!fd->released) {
-    close(fd->fd);
-  }
+  /* Real close() deferred until all known references released. */
   GRPC_CLOSURE_SCHED(fd->on_done_closure, GRPC_ERROR_NONE);
 }
 
